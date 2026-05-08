@@ -51,7 +51,7 @@ jobs:
 
           echo "Video size: ${SIZE_MB}MB"
 
-          # ساخت فایل RAR رمزگذاری شده (در صورت نیاز تقسیم شود) - در همین پوشه
+          # ساخت فایل RAR رمزگذاری شده (در صورت نیاز تقسیم شود)
           if [ $SIZE_MB -le $MAX_SIZE_MB ]; then
             echo "Creating single RAR archive..."
             rar a -hp"$PASSWORD" -ep1 "final_archive.rar" "video.mp4"
@@ -60,10 +60,12 @@ jobs:
             rar a -v${MAX_SIZE_MB}M -hp"$PASSWORD" -ep1 "final_archive.rar" "video.mp4"
           fi
 
-          # برگرد به ریشه و فایل‌ها رو به پوشه مشخص منتقل کن
+          # برگرد به ریشه و همه فایل‌های RAR رو پیدا کن و منتقل کن
           cd ..
           mkdir -p upload_me
-          mv video_temp/final_archive.rar* upload_me/ 2>/dev/null || true
+          
+          # پیدا کردن همه فایل‌های RAR (با اسم‌های مختلف)
+          find . -name "final_archive.rar*" -type f -exec mv {} upload_me/ \;
           
           # لیست فایل‌ها برای دیباگ
           echo "Files to upload:"
