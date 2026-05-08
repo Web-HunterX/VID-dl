@@ -16,6 +16,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
 
       - name: Install dependencies & download video
         run: |
@@ -32,53 +35,38 @@ jobs:
           echo "Downloading from: $URL"
           yt-dlp -f "bestvideo+bestaudio/best" --merge-output-format mp4 "$URL" -o "video.mp4"
 
-          # اگه فرمت اول جواب نداد، با best دانلود کن
           if [ ! -f "video.mp4" ]; then
             echo "Trying with best format only..."
             yt-dlp -f "best" "$URL" -o "video.mp4"
           fi
 
-          # اگه بازم نشد، خطا بده
           if [ ! -f "video.mp4" ]; then
             echo "Download failed! Unsupported site or invalid URL."
             exit 1
           fi
 
-          # محاسبه حجم
           SIZE=$(stat -c%s "video.mp4")
           SIZE_MB=$((SIZE / 1024 / 1024))
 
           echo "Video size: ${SIZE_MB}MB"
 
-          # ایجاد پوشه برای فایل‌های خروجی
           mkdir -p release_files
 
-          # اول یه ZIP رمزدار از کل ویدیو بساز
           zip -P "$PASSWORD" "release_files/video_archive.zip" "video.mp4"
           
-          # رفتن به پوشه release_files
           cd release_files
           
-          # اگه حجم ZIP بیشتر از 80MB بود، تقسیمش کن
           ZIP_SIZE=$(stat -c%s "video_archive.zip")
           ZIP_SIZE_MB=$((ZIP_SIZE / 1024 / 1024))
 
           if [ $ZIP_SIZE_MB -gt $MAX_SIZE_MB ]; then
             echo "ZIP is ${ZIP_SIZE_MB}MB, splitting into ${MAX_SIZE_MB}MB parts..."
-            # تقسیم فایل ZIP به چند تکه
             split -b ${MAX_SIZE_MB}M "video_archive.zip" "video_archive.zip.part_"
-            # حذف فایل ZIP اصلی
             rm "video_archive.zip"
-            echo "✅ Video split into parts:"
             ls -la video_archive.zip.part_*
-          else
-            echo "✅ Video size is under ${MAX_SIZE_MB}MB, no splitting needed"
           fi
           
-          # پاک کردن ویدیوی اصلی از این پوشه
           rm -f ../video.mp4
-          
-          # برگشت به ریشه
           cd ..
 
       - name: Push to repository
@@ -86,23 +74,27 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # اضافه کردن فایل‌ها به گیت
+          # دریافت آخرین تغییرات
+          git fetch origin main
+          git pull origin main --rebase || true
+          
+          # اضافه کردن و commit
           git add release_files/
           git commit -m "Add downloaded video files [skip ci]" || echo "No changes to commit"
           
-          # پوش به ریپازیتوری
-          git push
+          # push کردن
+          git push origin main
 
       - name: Wait and cleanup
         run: |
           echo "Waiting 5 minutes before cleaning up..."
           sleep 300
           
-          # پاک کردن فایل‌ها از ریپازیتوری
+          git fetch origin main
+          git pull origin main --rebase || true
           git rm -rf release_files/
           git commit -m "Cleanup video files [skip ci]" || echo "No files to clean"
-          git push
+          git push origin main
           
-          # پاک کردن محلی
           rm -rf release_files video.mp4
           echo "Cleanup completed."
