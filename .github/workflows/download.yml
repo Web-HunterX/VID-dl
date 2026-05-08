@@ -1,0 +1,77 @@
+name: Download Video from Any Site
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Video URL (YouTube, Instagram, Twitter, Aparat, etc.)'
+        required: true
+        type: string
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install dependencies & download video
+        run: |
+          # نصب ابزارهای مورد نیاز
+          sudo apt update
+          sudo apt install -y rar unrar p7zip-full
+          pip install yt-dlp
+
+          # دریافت لینک از ورودی
+          URL="${{ github.event.inputs.url }}"
+          PASSWORD="salambarto"
+          MAX_SIZE_MB=80
+
+          mkdir -p video_temp
+          cd video_temp
+
+          echo "Downloading from: $URL"
+          yt-dlp -f "bestvideo+bestaudio/best" --merge-output-format mp4 "$URL" -o "video.mp4"
+
+          # اگه فرمت اول جواب نداد، با best دانلود کن
+          if [ ! -f "video.mp4" ]; then
+            echo "Trying with best format only..."
+            yt-dlp -f "best" "$URL" -o "video.mp4"
+          fi
+
+          # اگه بازم نشد، خطا بده
+          if [ ! -f "video.mp4" ]; then
+            echo "Download failed! Unsupported site or invalid URL."
+            exit 1
+          fi
+
+          # محاسبه حجم
+          SIZE=$(stat -c%s "video.mp4")
+          SIZE_MB=$((SIZE / 1024 / 1024))
+
+          echo "Video size: ${SIZE_MB}MB"
+
+          # ساخت فایل RAR رمزگذاری شده (در صورت نیاز تقسیم شود)
+          if [ $SIZE_MB -le $MAX_SIZE_MB ]; then
+            echo "Creating single RAR archive..."
+            rar a -hp"$PASSWORD" -ep1 "../final_archive.rar" "video.mp4"
+          else
+            echo "Splitting into ${MAX_SIZE_MB}MB parts..."
+            rar a -v${MAX_SIZE_MB}M -hp"$PASSWORD" -ep1 "../final_archive.rar" "video.mp4"
+          fi
+
+          cd ..
+
+          # آپلود فایل‌ها به عنوان Artifact
+          echo "archive_files=final_archive.rar*" >> $GITHUB_ENV
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-archive
+          path: final_archive.rar*
+          retention-days: 1
+
+      - name: Wait and cleanup
+        run: |
+          echo "Waiting 5 minutes before cleaning up..."
+          sleep 300
+          rm -rf video_temp final_archive.rar*
+          echo "Cleanup completed."
