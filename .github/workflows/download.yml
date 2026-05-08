@@ -12,6 +12,9 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Install dependencies & download video
         run: |
           # نصب ابزارهای مورد نیاز
@@ -48,30 +51,34 @@ jobs:
 
           echo "Video size: ${SIZE_MB}MB"
 
-          # ساخت فایل RAR رمزگذاری شده (در صورت نیاز تقسیم شود)
+          # ساخت فایل RAR رمزگذاری شده (در صورت نیاز تقسیم شود) - در همین پوشه
           if [ $SIZE_MB -le $MAX_SIZE_MB ]; then
             echo "Creating single RAR archive..."
-            rar a -hp"$PASSWORD" -ep1 "../final_archive.rar" "video.mp4"
+            rar a -hp"$PASSWORD" -ep1 "final_archive.rar" "video.mp4"
           else
             echo "Splitting into ${MAX_SIZE_MB}MB parts..."
-            rar a -v${MAX_SIZE_MB}M -hp"$PASSWORD" -ep1 "../final_archive.rar" "video.mp4"
+            rar a -v${MAX_SIZE_MB}M -hp"$PASSWORD" -ep1 "final_archive.rar" "video.mp4"
           fi
 
+          # برگرد به ریشه و فایل‌ها رو به پوشه مشخص منتقل کن
           cd ..
-
-          # آپلود فایل‌ها به عنوان Artifact
-          echo "archive_files=final_archive.rar*" >> $GITHUB_ENV
+          mkdir -p upload_me
+          mv video_temp/final_archive.rar* upload_me/ 2>/dev/null || true
+          
+          # لیست فایل‌ها برای دیباگ
+          echo "Files to upload:"
+          ls -la upload_me/
 
       - name: Upload archive
         uses: actions/upload-artifact@v4
         with:
           name: video-archive
-          path: final_archive.rar*
+          path: upload_me/
           retention-days: 1
 
       - name: Wait and cleanup
         run: |
           echo "Waiting 5 minutes before cleaning up..."
           sleep 300
-          rm -rf video_temp final_archive.rar*
+          rm -rf video_temp upload_me
           echo "Cleanup completed."
