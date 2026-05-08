@@ -12,14 +12,11 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Install dependencies & download video
         run: |
           # نصب ابزارهای مورد نیاز
           sudo apt update
-          sudo apt install -y rar unrar p7zip-full
+          sudo apt install -y zip p7zip-full
           pip install yt-dlp
 
           # دریافت لینک از ورودی
@@ -51,36 +48,51 @@ jobs:
 
           echo "Video size: ${SIZE_MB}MB"
 
-          # ساخت فایل RAR رمزگذاری شده (در صورت نیاز تقسیم شود)
-          if [ $SIZE_MB -le $MAX_SIZE_MB ]; then
-            echo "Creating single RAR archive..."
-            rar a -hp"$PASSWORD" -ep1 "final_archive.rar" "video.mp4"
+          # رمزگذاری و تقسیم با ZIP
+          # اول یه زیپ رمزدار از ویدیو میسازیم
+          zip -P "$PASSWORD" "temp_archive.zip" "video.mp4"
+
+          # اگه حجم زیپ از 80MB بیشتر بود، تقسیمش کن
+          ZIP_SIZE=$(stat -c%s "temp_archive.zip")
+          ZIP_SIZE_MB=$((ZIP_SIZE / 1024 / 1024))
+
+          if [ $ZIP_SIZE_MB -le $MAX_SIZE_MB ]; then
+            echo "Archive is ${ZIP_SIZE_MB}MB, no splitting needed"
+            mv "temp_archive.zip" "final_archive.zip"
           else
-            echo "Splitting into ${MAX_SIZE_MB}MB parts..."
-            rar a -v${MAX_SIZE_MB}M -hp"$PASSWORD" -ep1 "final_archive.rar" "video.mp4"
+            echo "Archive is ${ZIP_SIZE_MB}MB, splitting into ${MAX_SIZE_MB}MB parts..."
+            # تقسیم فایل زیپ به چند قسمت
+            split -b ${MAX_SIZE_MB}M "temp_archive.zip" "final_archive.zip.part"
+            
+            # تغییر اسم فایل‌ها به .z01, .z02, ...
+            PART_NUM=1
+            for part in final_archive.zip.part*; do
+              if [ $PART_NUM -eq 1 ]; then
+                mv "$part" "final_archive.zip"
+              else
+                mv "$part" "final_archive.z$(printf '%02d' $((PART_NUM-1)))"
+              fi
+              PART_NUM=$((PART_NUM + 1))
+            done
+            rm -f "temp_archive.zip"
           fi
 
-          # برگرد به ریشه و همه فایل‌های RAR رو پیدا کن و منتقل کن
           cd ..
-          mkdir -p upload_me
           
-          # پیدا کردن همه فایل‌های RAR (با اسم‌های مختلف)
-          find . -name "final_archive.rar*" -type f -exec mv {} upload_me/ \;
-          
-          # لیست فایل‌ها برای دیباگ
-          echo "Files to upload:"
-          ls -la upload_me/
+          # لیست فایل‌های داخل video_temp برای دیباگ
+          echo "Files in video_temp:"
+          ls -la video_temp/
 
       - name: Upload archive
         uses: actions/upload-artifact@v4
         with:
           name: video-archive
-          path: upload_me/
+          path: video_temp/
           retention-days: 1
 
       - name: Wait and cleanup
         run: |
           echo "Waiting 5 minutes before cleaning up..."
           sleep 300
-          rm -rf video_temp upload_me
+          rm -rf video_temp
           echo "Cleanup completed."
