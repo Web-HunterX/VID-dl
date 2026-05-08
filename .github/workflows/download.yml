@@ -11,21 +11,23 @@ on:
 jobs:
   download:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Install dependencies & download video
         run: |
           # نصب ابزارهای مورد نیاز
           sudo apt update
-          sudo apt install -y zip p7zip-full
+          sudo apt install -y zip
           pip install yt-dlp
 
           # دریافت لینک از ورودی
           URL="${{ github.event.inputs.url }}"
           PASSWORD="salambarto"
           MAX_SIZE_MB=80
-
-          mkdir -p video_temp
-          cd video_temp
 
           echo "Downloading from: $URL"
           yt-dlp -f "bestvideo+bestaudio/best" --merge-output-format mp4 "$URL" -o "video.mp4"
@@ -48,51 +50,57 @@ jobs:
 
           echo "Video size: ${SIZE_MB}MB"
 
-          # رمزگذاری و تقسیم با ZIP
-          # اول یه زیپ رمزدار از ویدیو میسازیم
-          zip -P "$PASSWORD" "temp_archive.zip" "video.mp4"
+          # ایجاد پوشه برای فایل‌های خروجی
+          mkdir -p release_files
+          cp video.mp4 release_files/
 
-          # اگه حجم زیپ از 80MB بیشتر بود، تقسیمش کن
-          ZIP_SIZE=$(stat -c%s "temp_archive.zip")
+          # ساخت ZIP رمزدار
+          cd release_files
+          zip -P "$PASSWORD" "video_archive.zip" "video.mp4"
+
+          # اگه حجم ZIP بیشتر از 80MB بود، تقسیم کن
+          ZIP_SIZE=$(stat -c%s "video_archive.zip")
           ZIP_SIZE_MB=$((ZIP_SIZE / 1024 / 1024))
 
-          if [ $ZIP_SIZE_MB -le $MAX_SIZE_MB ]; then
-            echo "Archive is ${ZIP_SIZE_MB}MB, no splitting needed"
-            mv "temp_archive.zip" "final_archive.zip"
-          else
-            echo "Archive is ${ZIP_SIZE_MB}MB, splitting into ${MAX_SIZE_MB}MB parts..."
-            # تقسیم فایل زیپ به چند قسمت
-            split -b ${MAX_SIZE_MB}M "temp_archive.zip" "final_archive.zip.part"
+          if [ $ZIP_SIZE_MB -gt $MAX_SIZE_MB ]; then
+            echo "ZIP is ${ZIP_SIZE_MB}MB, splitting into ${MAX_SIZE_MB}MB parts..."
+            rm video_archive.zip
+            split -b ${MAX_SIZE_MB}M "video.mp4" "video_part_"
             
-            # تغییر اسم فایل‌ها به .z01, .z02, ...
-            PART_NUM=1
-            for part in final_archive.zip.part*; do
-              if [ $PART_NUM -eq 1 ]; then
-                mv "$part" "final_archive.zip"
-              else
-                mv "$part" "final_archive.z$(printf '%02d' $((PART_NUM-1)))"
-              fi
-              PART_NUM=$((PART_NUM + 1))
+            # هر قسمت رو جداگانه ZIP کن با رمز
+            PART=1
+            for part in video_part_*; do
+              zip -P "$PASSWORD" "video_archive_part${PART}.zip" "$part"
+              rm "$part"
+              PART=$((PART + 1))
             done
-            rm -f "temp_archive.zip"
           fi
-
-          cd ..
           
-          # لیست فایل‌های داخل video_temp برای دیباگ
-          echo "Files in video_temp:"
-          ls -la video_temp/
+          rm video.mp4
+          cd ..
 
-      - name: Upload archive
-        uses: actions/upload-artifact@v4
-        with:
-          name: video-archive
-          path: video_temp/
-          retention-days: 1
+      - name: Push to repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # اضافه کردن فایل‌ها به گیت
+          git add release_files/
+          git commit -m "Add downloaded video files [skip ci]" || echo "No changes to commit"
+          
+          # پوش به ریپازیتوری
+          git push
 
       - name: Wait and cleanup
         run: |
           echo "Waiting 5 minutes before cleaning up..."
           sleep 300
-          rm -rf video_temp
+          
+          # پاک کردن فایل‌ها از ریپازیتوری
+          git rm -rf release_files/
+          git commit -m "Cleanup video files [skip ci]" || echo "No files to clean"
+          git push
+          
+          # پاک کردن محلی
+          rm -rf release_files video.mp4
           echo "Cleanup completed."
