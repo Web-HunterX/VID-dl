@@ -52,31 +52,33 @@ jobs:
 
           # ایجاد پوشه برای فایل‌های خروجی
           mkdir -p release_files
-          cp video.mp4 release_files/
 
-          # ساخت ZIP رمزدار
+          # اول یه ZIP رمزدار از کل ویدیو بساز
+          zip -P "$PASSWORD" "release_files/video_archive.zip" "video.mp4"
+          
+          # رفتن به پوشه release_files
           cd release_files
-          zip -P "$PASSWORD" "video_archive.zip" "video.mp4"
-
-          # اگه حجم ZIP بیشتر از 80MB بود، تقسیم کن
+          
+          # اگه حجم ZIP بیشتر از 80MB بود، تقسیمش کن
           ZIP_SIZE=$(stat -c%s "video_archive.zip")
           ZIP_SIZE_MB=$((ZIP_SIZE / 1024 / 1024))
 
           if [ $ZIP_SIZE_MB -gt $MAX_SIZE_MB ]; then
             echo "ZIP is ${ZIP_SIZE_MB}MB, splitting into ${MAX_SIZE_MB}MB parts..."
-            rm video_archive.zip
-            split -b ${MAX_SIZE_MB}M "video.mp4" "video_part_"
-            
-            # هر قسمت رو جداگانه ZIP کن با رمز
-            PART=1
-            for part in video_part_*; do
-              zip -P "$PASSWORD" "video_archive_part${PART}.zip" "$part"
-              rm "$part"
-              PART=$((PART + 1))
-            done
+            # تقسیم فایل ZIP به چند تکه
+            split -b ${MAX_SIZE_MB}M "video_archive.zip" "video_archive.zip.part_"
+            # حذف فایل ZIP اصلی
+            rm "video_archive.zip"
+            echo "✅ Video split into parts:"
+            ls -la video_archive.zip.part_*
+          else
+            echo "✅ Video size is under ${MAX_SIZE_MB}MB, no splitting needed"
           fi
           
-          rm video.mp4
+          # پاک کردن ویدیوی اصلی از این پوشه
+          rm -f ../video.mp4
+          
+          # برگشت به ریشه
           cd ..
 
       - name: Push to repository
