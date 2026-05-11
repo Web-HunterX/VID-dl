@@ -33,13 +33,22 @@ jobs:
           MAX_SIZE_MB=80
 
           echo "Downloading from: $URL"
-          # تغییر اصلی اینجاست: اضافه کردن extractor-args برای پشتیبانی کامل از یوتیوب
-          yt-dlp --extractor-args "youtube:player-client=web,android;player-skip=webpage" -f "bestvideo+bestaudio/best" --merge-output-format mp4 "$URL" -o "video.mp4"
-
-          if [ ! -f "video.mp4" ]; then
-            echo "Trying with best format only..."
-            yt-dlp --extractor-args "youtube:player-client=web,android;player-skip=webpage" -f "best" "$URL" -o "video.mp4"
-          fi
+          
+          # استفاده از گزینه های بیشتر برای عبور از محدودیت یوتیوب
+          yt-dlp --no-check-certificate \
+                 --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+                 --extractor-args "youtube:player-client=android,web;player-skip=webpage,js" \
+                 --geo-bypass \
+                 --sleep-requests 2 \
+                 --sleep-interval 3 \
+                 --max-sleep-interval 8 \
+                 -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
+                 --merge-output-format mp4 \
+                 "$URL" -o "video.mp4" || \
+                 yt-dlp --no-check-certificate \
+                 --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+                 -f "worst" \
+                 "$URL" -o "video.mp4"
 
           if [ ! -f "video.mp4" ]; then
             echo "Download failed! Unsupported site or invalid URL."
@@ -75,15 +84,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # دریافت آخرین تغییرات
           git fetch origin main
           git pull origin main --rebase || true
           
-          # اضافه کردن و commit
           git add release_files/
           git commit -m "Add downloaded video files [skip ci]" || echo "No changes to commit"
           
-          # push کردن
           git push origin main
 
       - name: Wait and cleanup
