@@ -24,8 +24,11 @@ jobs:
         run: |
           # نصب ابزارهای مورد نیاز
           sudo apt update
-          sudo apt install -y zip
-          pip install yt-dlp
+          sudo apt install -y zip nodejs npm
+          pip install --upgrade yt-dlp
+          
+          # نصب بسته کمکی برای PO Token
+          sudo npm install -g yt-dlp-token
 
           # دریافت لینک از ورودی
           URL="${{ github.event.inputs.url }}"
@@ -34,22 +37,48 @@ jobs:
 
           echo "Downloading from: $URL"
           
-          # استفاده از گزینه های بیشتر برای عبور از محدودیت یوتیوب
-          yt-dlp --no-check-certificate \
-                 --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-                 --extractor-args "youtube:player-client=android,web;player-skip=webpage,js" \
-                 --geo-bypass \
-                 --sleep-requests 2 \
-                 --sleep-interval 3 \
-                 --max-sleep-interval 8 \
-                 -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" \
-                 --merge-output-format mp4 \
-                 "$URL" -o "video.mp4" || \
-                 yt-dlp --no-check-certificate \
-                 --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
-                 -f "worst" \
-                 "$URL" -o "video.mp4"
+          # روش اول: تلاش با PO Token (جدیدترین روش برای یوتیوب)
+          if [[ "$URL" == *"youtube.com"* ]] || [[ "$URL" == *"youtu.be"* ]]; then
+            echo "YouTube video detected - using PO Token method..."
+            
+            # دریافت توکن خودکار
+            TOKEN=$(yt-dlp-token generate 2>/dev/null || echo "")
+            
+            if [ -n "$TOKEN" ]; then
+              echo "PO Token generated successfully"
+              yt-dlp --extractor-args "youtube:po_token=${TOKEN}" \
+                     --extractor-args "youtube:player-client=web,android" \
+                     --extractor-args "youtube:player-skip=webpage,configs" \
+                     --no-check-certificate \
+                     -f "bestvideo+bestaudio/best" \
+                     --merge-output-format mp4 \
+                     "$URL" -o "video.mp4"
+            else
+              echo "PO Token generation failed, trying alternative method..."
+              yt-dlp --extractor-args "youtube:player-client=ios,android_test,web_embedded" \
+                     --extractor-args "youtube:player-skip=webpage,js" \
+                     --no-check-certificate \
+                     -f "bestvideo+bestaudio/best" \
+                     --merge-output-format mp4 \
+                     "$URL" -o "video.mp4"
+            fi
+          else
+            # برای سایت‌های غیر از یوتیوب
+            echo "Non-YouTube video detected..."
+            yt-dlp -f "bestvideo+bestaudio/best" --merge-output-format mp4 "$URL" -o "video.mp4"
+          fi
 
+          # اگر روش اول جواب نداد، روش جایگزین با کلاینت اندروید
+          if [ ! -f "video.mp4" ]; then
+            echo "First method failed, trying fallback method with android client..."
+            yt-dlp --extractor-args "youtube:player-client=android" \
+                   --extractor-args "youtube:player-skip=webpage" \
+                   --no-check-certificate \
+                   -f "best[ext=mp4]" \
+                   "$URL" -o "video.mp4"
+          fi
+
+          # اگر هیچ روشی جواب نداد
           if [ ! -f "video.mp4" ]; then
             echo "Download failed! Unsupported site or invalid URL."
             exit 1
@@ -84,12 +113,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
+          # دریافت آخرین تغییرات
           git fetch origin main
           git pull origin main --rebase || true
           
+          # اضافه کردن و commit
           git add release_files/
           git commit -m "Add downloaded video files [skip ci]" || echo "No changes to commit"
           
+          # push کردن
           git push origin main
 
       - name: Wait and cleanup
